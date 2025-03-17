@@ -416,13 +416,15 @@ def roots_to_supervoxels(x, use_cache=True, progress=True, *, dataset=None):
         with Cache(directory="~/.fafbseg/svoxel_cache/") as sv_cache:
             # See if we have any of these roots cached
             with sv_cache.transact():
-                is_cached = np.isin(x, sv_cache)
+                # N.B. np.isin does seem to say "True" when in fact it's not
+                is_cached = np.array([int(i) in sv_cache for i in x])
 
             # Add supervoxels from cache if we have any
             if np.any(is_cached):
                 # Get values from cache
                 with sv_cache.transact():
-                    svoxels.update({i: sv_cache[i] for i in x[is_cached]})
+                    # N.B. int(i) is required because of stupid numpy 2.0
+                    svoxels.update({i: sv_cache[int(i)] for i in x[is_cached]})
 
     # Get the supervoxels for the roots that are still missing
     # We need to convert keys to integer array because otherwise there is a
@@ -445,7 +447,7 @@ def roots_to_supervoxels(x, use_cache=True, progress=True, *, dataset=None):
         with Cache(directory="~/.fafbseg/svoxel_cache/") as sv_cache:
             with sv_cache.transact():
                 for i in miss:
-                    sv_cache[i] = svoxels[i]
+                    sv_cache[int(i)] = svoxels[i]
 
     return svoxels
 
