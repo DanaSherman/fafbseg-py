@@ -281,15 +281,20 @@ def get_cave_client(*, dataset=None, token=None, check_stale=True,
     """Get CAVE client.
 
     Currently, the CAVE client pulls the available materialization versions
-    ONCE on initialization. This means that if the same client is used for over
-    24h it will be unaware of any new materialization versions which will slow
-    down live queries substantially. We try to detect whether the client may
-    have gone stale but this may not always work perfectly.
+    ONCE on initialization. This means that *for the production dataset*,
+    if the same client is used for over 24h it will be unaware of any new
+    materialization versions which can slow down live queries substantially.
+    We try to detect whether the client may have gone stale but this may
+    not always work perfectly.
 
     Parameters
     ----------
-    dataset :       str
-                    Data set to create client for.
+    dataset :       "public" | "production"
+                    Dataset to create client for, either the public or the
+                    production dataset. Access to the latter requires additional
+                    permissions. Note that under the hood we also map
+                    "flat_783" and "flat_630" the public dataset but this
+                    is for internal purposes only.
     token :         str, optional
                     Your chunked graph secret (i.e. "CAVE secret"). If not
                     provided will try reading via cloud-volume.
@@ -340,8 +345,15 @@ def get_cave_client(*, dataset=None, token=None, check_stale=True,
     # However, we want to enable our users to do that if they want, so we will add it back
     client = cave_clients[datastack]
     if client.materialize.synapse_table is None:
-        if "synapses_nt_v1" in client.materialize.get_tables():
-            client.materialize.synapse_table = "synapses_nt_v1"
+        # The client.materialize.get_tables() call can fail if e.g. the datastack has no
+        # materialized versions. Not a problem with FlyWire but some of the other stacks do.
+        try:
+            if "synapses_nt_v1" in client.materialize.get_tables():
+                client.materialize.synapse_table = "synapses_nt_v1"
+        except ValueError:
+            pass
+        except BaseException:
+            raise
 
     return client
 
