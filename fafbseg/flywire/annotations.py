@@ -28,7 +28,7 @@ import pandas as pd
 
 # Catch some stupid warning about installing python-Levenshtein
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore')
+    warnings.simplefilter("ignore")
     import fuzzywuzzy as fw
     import fuzzywuzzy.process
 
@@ -38,52 +38,75 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..utils import make_iterable, download_cache_file, CACHE_DIR
-from .utils import (get_cave_client, retry, get_chunkedgraph_secret,
-                    find_mat_version, inject_dataset, _is_valid_version,
-                    match_dtype, MaterializationMatchError)
+from .utils import (
+    get_cave_client,
+    retry,
+    get_chunkedgraph_secret,
+    find_mat_version,
+    inject_dataset,
+    _is_valid_version,
+    match_dtype,
+    MaterializationMatchError,
+)
 from . import segmentation, utils  # this is to avoid circular imports
 
 ANNOT_REPO_URL = "https://api.github.com/repos/flyconnectome/flywire_annotations"
 FLYWIRE_ANNOT_URL = "https://github.com/flyconnectome/flywire_annotations/raw/{commit}/supplemental_files/Supplemental_file1_neuron_annotations.tsv"
 FLYWIRE_ANNOT_URL_OLD = "https://github.com/flyconnectome/flywire_annotations/raw/{commit}/supplemental_files/Supplemental_file1_annotations.tsv"
 AVAILABLE_FIELDS = [
-                    #'supervoxel_id',  # skipping this because it may imply that we can map any supervoxel
-                    'root_id',
-                    #'pos_x', 'pos_y', 'pos_z', 'soma_x',  # skipping because numeric
-                    #'soma_y', 'soma_z', 'nucleus_id',  # skipping because numeric
-                    'flow', 'super_class', 'cell_class',
-                    'cell_sub_class', 'cell_type', 'hemibrain_type', 'ito_lee_hemilineage',
-                    'hartenstein_hemilineage', 'morphology_group',
-                    'top_nt', 'known_nt', # 'top_nt_conf',  # skipping because numeric
-                    'side', 'nerve', 'fbbt_id', 'status'] \
-                    + ['type', 'community_annotation']  # these are special hard-coded cases
+    #'supervoxel_id',  # skipping this because it may imply that we can map any supervoxel
+    "root_id",
+    #'pos_x', 'pos_y', 'pos_z', 'soma_x',  # skipping because numeric
+    #'soma_y', 'soma_z', 'nucleus_id',  # skipping because numeric
+    "flow",
+    "super_class",
+    "cell_class",
+    "cell_sub_class",
+    "cell_type",
+    "hemibrain_type",
+    "ito_lee_hemilineage",
+    "hartenstein_hemilineage",
+    "morphology_group",
+    "top_nt",
+    "known_nt",  # 'top_nt_conf',  # skipping because numeric
+    "side",
+    "nerve",
+    "fbbt_id",
+    "status",
+] + ["type", "community_annotation"]  # these are special hard-coded cases
 
-__all__ = ['get_somas',
-           'get_materialization_versions',
-           'get_cave_table',
-           'get_user_information',
-           'list_cave_tables',
-           'create_cave_table',
-           'get_cave_table_info',
-           'delete_annotations', 'upload_annotations',
-           'is_proofread',
-           'search_community_annotations', 'search_annotations',
-           'get_hierarchical_annotations',
-           'NeuronCriteria',
-           'set_default_annotation_version']
+__all__ = [
+    "get_somas",
+    "get_materialization_versions",
+    "get_cave_table",
+    "get_user_information",
+    "list_cave_tables",
+    "create_cave_table",
+    "get_cave_table_info",
+    "delete_annotations",
+    "upload_annotations",
+    "is_proofread",
+    "search_community_annotations",
+    "search_annotations",
+    "get_hierarchical_annotations",
+    "NeuronCriteria",
+    "set_default_annotation_version",
+]
 
 
 PR_TABLE = {}
-NUC_TABLES = {"default": "nuclei_v1",
-              "flywire_fafb_public": "nuclei_v1",
-              "flywire_fafb_production": "nuclei_v1",
-              "fanc_production_mar2021": "nucleus_mar2022"}
+NUC_TABLES = {
+    "default": "nuclei_v1",
+    "flywire_fafb_public": "nuclei_v1",
+    "flywire_fafb_production": "nuclei_v1",
+    "fanc_production_mar2021": "nucleus_mar2022",
+}
 COMMUNITY_ANNOTATION_TABLE = "neuron_information_v2"
 _annotation_tables = None
 _user_information = {}
 
 # The default annotation version
-DEFAULT_ANNOTATION_VERSION = os.environ.get('FLYWIRE_DEFAULT_ANNOTATION_VERSION', None)
+DEFAULT_ANNOTATION_VERSION = os.environ.get("FLYWIRE_DEFAULT_ANNOTATION_VERSION", None)
 _CURRENT_ANNOTATION_COMMIT = None  # this is to keep track of the current commit
 
 
@@ -99,6 +122,7 @@ def parse_neuroncriteria(allow_all=True, allow_empty=False):
     allow_empty :   bool
                     Whether to allow the NeuronCriteria to not match any neurons.
     """
+
     def outer(func):
         @functools.wraps(func)
         def inner(*args, **kwargs):
@@ -107,12 +131,14 @@ def parse_neuroncriteria(allow_all=True, allow_empty=False):
                 if isinstance(nc, NeuronCriteria):
                     # First check if we're allowed to query all neurons
                     if nc.is_empty and not allow_empty:
-                        raise ValueError('NeuronCriteria must contain filter conditions.')
+                        raise ValueError(
+                            "NeuronCriteria must contain filter conditions."
+                        )
                     # See if materialization is defined in the function's signature
                     # but not in the NeuronCriteria
-                    if nc.materialization in ('auto', None):
-                        if kwargs.get("materialization") not in ('auto', None):
-                            nc.materialization = kwargs['materialization']
+                    if nc.materialization in ("auto", None):
+                        if kwargs.get("materialization") not in ("auto", None):
+                            nc.materialization = kwargs["materialization"]
                     # TODO: we should probably also check for clashes, e.g. if
                     # flywire.get_synapses(NC(type='ps009', materialization=123), materialiation=456)
                     args = list(args)
@@ -122,12 +148,14 @@ def parse_neuroncriteria(allow_all=True, allow_empty=False):
                 if isinstance(nc, NeuronCriteria):
                     # First check if we're allowed to query all neurons
                     if nc.is_empty and not allow_empty:
-                        raise ValueError('NeuronCriteria must contain filter conditions.')
+                        raise ValueError(
+                            "NeuronCriteria must contain filter conditions."
+                        )
                     # See if materialization is defined in the function's signature
                     # but not in the NeuronCriteria
-                    if nc.materialization in ('auto', None):
-                        if kwargs.get("materialization") not in ('auto', None):
-                            nc.materialization = kwargs['materialization']
+                    if nc.materialization in ("auto", None):
+                        if kwargs.get("materialization") not in ("auto", None):
+                            nc.materialization = kwargs["materialization"]
                     kwargs[key] = nc.get_roots()
             try:
                 return func(*args, **kwargs)
@@ -136,13 +164,22 @@ def parse_neuroncriteria(allow_all=True, allow_empty=False):
                     return np.array([], dtype=np.int64)
                 else:
                     raise e
+
         return inner
+
     return outer
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
-def is_proofread(x, table=("proofreading_status_public_v1", "proofread_neurons"),
-                 materialization='auto', cache=True, validate=True, *, dataset=None):
+@inject_dataset(disallowed=["flat_630", "flat_571"])
+def is_proofread(
+    x,
+    table=("proofreading_status_public_v1", "proofread_neurons"),
+    materialization="auto",
+    cache=True,
+    validate=True,
+    *,
+    dataset=None,
+):
     """Test if neuron has been set to `proofread`.
 
     Parameters
@@ -197,11 +234,13 @@ def is_proofread(x, table=("proofreading_status_public_v1", "proofread_neurons")
     x = np.asarray(x, dtype=np.int64)
 
     # Check if any of the roots are outdated -> can't check those
-    if validate and materialization == 'live':
+    if validate and materialization == "live":
         il = segmentation.is_latest_root(x, dataset=dataset)
         if any(~il):
-            print("At least some root ID(s) outdated and will therefore show up as "
-                  f"not proofread: {x[~il]}")
+            print(
+                "At least some root ID(s) outdated and will therefore show up as "
+                f"not proofread: {x[~il]}"
+            )
 
     # Get available materialization versions
     client = get_cave_client(dataset=dataset)
@@ -216,42 +255,49 @@ def is_proofread(x, table=("proofreading_status_public_v1", "proofread_neurons")
                 table = t
                 break
         if not isinstance(t, str):
-            raise ValueError(f'None of the tables "{table}" are available in dataset "{dataset}"')
+            raise ValueError(
+                f'None of the tables "{table}" are available in dataset "{dataset}"'
+            )
     else:
-        raise TypeError('`table` must be str or tuple/list of str, got {type(table)}')
+        raise TypeError("`table` must be str or tuple/list of str, got {type(table)}")
 
-    if materialization == 'latest':
+    if materialization == "latest":
         mat_versions = client.materialize.get_versions()
         materialization = max(mat_versions)
-    elif materialization == 'auto':
+    elif materialization == "auto":
         materialization = find_mat_version(x, dataset=dataset)
 
-    if materialization == 'live':
+    if materialization == "live":
         # For live materialization only do on-the-run queries
-        pr_table = client.materialize.live_query(table=table,
-                                                 timestamp=dt.datetime.utcnow(),
-                                                 filter_in_dict=dict(pt_root_id=x))
+        pr_table = client.materialize.live_query(
+            table=table,
+            timestamp=dt.datetime.utcnow(),
+            filter_in_dict=dict(pt_root_id=x),
+        )
     elif isinstance(materialization, (np.integer, int)):
         if cache:
             if (table, materialization) in PR_TABLE:
                 pr_table = PR_TABLE[(table, materialization)]
             else:
-                pr_table = client.materialize.query_table(table=table,
-                                                          materialization_version=materialization)
+                pr_table = client.materialize.query_table(
+                    table=table, materialization_version=materialization
+                )
                 PR_TABLE[(table, materialization)] = pr_table
         else:
-            pr_table = client.materialize.query_table(table=table,
-                                                      filter_in_dict=dict(pt_root_id=x),
-                                                      materialization_version=materialization)
+            pr_table = client.materialize.query_table(
+                table=table,
+                filter_in_dict=dict(pt_root_id=x),
+                materialization_version=materialization,
+            )
     else:
         raise ValueError(f'Invalid materialization "{materialization}"')
 
     return np.isin(x, pr_table.pt_root_id.values)
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
+@inject_dataset(disallowed=["flat_630", "flat_571"])
 @retry
-def is_materialized_root(id, materialization='latest', *, dataset=None):
+def is_materialized_root(id, materialization="latest", *, dataset=None):
     """Check if root existed at the time of materialization.
 
     Parameters
@@ -295,7 +341,9 @@ def is_materialized_root(id, materialization='latest', *, dataset=None):
     ts_root_gen = client.chunkedgraph.get_root_timestamps(id)
 
     # Get timestamp at materalization
-    ts_mat = client.materialize.get_timestamp(None if materialization == 'latest' else materialization)
+    ts_mat = client.materialize.get_timestamp(
+        None if materialization == "latest" else materialization
+    )
 
     # Root IDs younger than the materialization can already be left at false
     older = ts_root_gen < ts_mat
@@ -314,9 +362,12 @@ def is_materialized_root(id, materialization='latest', *, dataset=None):
             for i, ts in zip(id[older][~il], ts_root_gen[older][~il]):
                 # Get the lineage graph from the root's creation right up to the
                 # materialization
-                G = client.chunkedgraph.get_lineage_graph(np.int64(i),
-                                                          timestamp_past=ts,
-                                                          timestamp_future=ts_mat, as_nx_graph=True)
+                G = client.chunkedgraph.get_lineage_graph(
+                    np.int64(i),
+                    timestamp_past=ts,
+                    timestamp_future=ts_mat,
+                    as_nx_graph=True,
+                )
                 try:
                     # If there is a successor, this root was already dead
                     _ = next(G.successors(i))
@@ -330,7 +381,7 @@ def is_materialized_root(id, materialization='latest', *, dataset=None):
     return is_mat
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
+@inject_dataset(disallowed=["flat_630", "flat_571"])
 def get_materialization_versions(*, dataset=None):
     """Fetch info on the available materializations.
 
@@ -354,22 +405,26 @@ def get_materialization_versions(*, dataset=None):
     versions = get_versions()
 
     # Fetch meta data
-    meta = pd.DataFrame.from_records([client.materialize.get_version_metadata(v) for v in versions])
+    meta = pd.DataFrame.from_records(
+        [client.materialize.get_version_metadata(v) for v in versions]
+    )
 
     # Reduce precision for timestamps to make more readable
-    meta['expires_on'] = meta.expires_on.values.astype('datetime64[m]')
-    meta['time_stamp'] = meta.time_stamp.values.astype('datetime64[m]')
+    meta["expires_on"] = meta.expires_on.values.astype("datetime64[m]")
+    meta["time_stamp"] = meta.time_stamp.values.astype("datetime64[m]")
 
-    return meta.sort_values('version', ascending=False).reset_index(drop=True)
+    return meta.sort_values("version", ascending=False).reset_index(drop=True)
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
-def create_cave_table(name: str,
-                            schema: str,
-                            description: str,
-                            voxel_resolution=[1, 1, 1],
-                            *,
-                            dataset=None):
+@inject_dataset(disallowed=["flat_630", "flat_571"])
+def create_cave_table(
+    name: str,
+    schema: str,
+    description: str,
+    voxel_resolution=[1, 1, 1],
+    *,
+    dataset=None,
+):
     """Create CAVE annotation table.
 
     This is just a thin-wrapper around `CAVEclient.annotation.create_table`.
@@ -421,33 +476,36 @@ def create_cave_table(name: str,
     # Get/Initialize the CAVE client
     client = get_cave_client(dataset=dataset)
 
-    navis.utils.eval_param(name, name='name', allowed_types=(str, ))
-    navis.utils.eval_param(schema, name='schema', allowed_types=(str, ))
-    navis.utils.eval_param(description, name='description', allowed_types=(str, ))
-    navis.utils.eval_param(voxel_resolution,
-                           name='voxel_resolution',
-                           allowed_types=(list, np.ndarray))
+    navis.utils.eval_param(name, name="name", allowed_types=(str,))
+    navis.utils.eval_param(schema, name="schema", allowed_types=(str,))
+    navis.utils.eval_param(description, name="description", allowed_types=(str,))
+    navis.utils.eval_param(
+        voxel_resolution, name="voxel_resolution", allowed_types=(list, np.ndarray)
+    )
 
     if isinstance(voxel_resolution, np.ndarray):
         voxel_resolution = voxel_resolution.flatten().tolist()
 
     if len(voxel_resolution) != 3:
-        raise ValueError('`voxel_resolution` must be list of [x, y, z], got '
-                         f'{len(voxel_resolution)}')
+        raise ValueError(
+            f"`voxel_resolution` must be list of [x, y, z], got {len(voxel_resolution)}"
+        )
 
-    resp = client.annotation.create_table(table_name=name,
-                                          schema_name=schema,
-                                          description=description,
-                                          voxel_resolution=voxel_resolution)
+    resp = client.annotation.create_table(
+        table_name=name,
+        schema_name=schema,
+        description=description,
+        voxel_resolution=voxel_resolution,
+    )
 
     if resp.content.decode() == name:
         print(f'Table "{resp.content.decode()}" successfully created.')
     else:
-        print('Something went wrong, check response.')
+        print("Something went wrong, check response.")
         return resp
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
+@inject_dataset(disallowed=["flat_630", "flat_571"])
 def list_cave_tables(*, dataset=None):
     """Fetch available CAVE annotation tables.
 
@@ -472,16 +530,14 @@ def list_cave_tables(*, dataset=None):
     all_tables = list(set(an) | set(ma))
 
     df = pd.DataFrame(index=all_tables)
-    df['annotation'] = df.index.isin(an)
-    df['materialized'] = df.index.isin(ma)
+    df["annotation"] = df.index.isin(an)
+    df["materialized"] = df.index.isin(ma)
 
     return df
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
-def get_cave_table_info(table_name: str,
-                        *,
-                        dataset=None):
+@inject_dataset(disallowed=["flat_630", "flat_571"])
+def get_cave_table_info(table_name: str, *, dataset=None):
     """Get info for given CAVE table.
 
     Parameters
@@ -505,14 +561,16 @@ def get_cave_table_info(table_name: str,
 
 
 @inject_dataset()
-def get_cave_table(table_name: str,
-                   materialization='latest',
-                   split_positions: bool = False,
-                   fill_user_info: bool = True,
-                   drop_invalid: bool = True,
-                   *,
-                   dataset: Optional[str] = None,
-                   **filters):
+def get_cave_table(
+    table_name: str,
+    materialization="latest",
+    split_positions: bool = False,
+    fill_user_info: bool = True,
+    drop_invalid: bool = True,
+    *,
+    dataset: Optional[str] = None,
+    **filters,
+):
     """Get annotations from given CAVE table.
 
     Parameters
@@ -551,52 +609,72 @@ def get_cave_table(table_name: str,
 
     """
     if isinstance(materialization, (np.ndarray, tuple, list)):
-        assert len(materialization) > 0, 'If you provide a container of materialization versions it must not be empty.'
-        return pd.concat([get_cave_table(table_name,
-                                         materialization=v,
-                                         split_positions=split_positions,
-                                         drop_invalid=drop_invalid,
-                                         dataset=dataset,
-                                         **filters) for v in materialization],
-                         axis=0)
+        assert len(materialization) > 0, (
+            "If you provide a container of materialization versions it must not be empty."
+        )
+        return pd.concat(
+            [
+                get_cave_table(
+                    table_name,
+                    materialization=v,
+                    split_positions=split_positions,
+                    drop_invalid=drop_invalid,
+                    dataset=dataset,
+                    **filters,
+                )
+                for v in materialization
+            ],
+            axis=0,
+        )
 
     # Get/Initialize the CAVE client
     client = get_cave_client(dataset=dataset)
 
-    navis.utils.eval_param(table_name, name='table_name', allowed_types=(str, ))
+    navis.utils.eval_param(table_name, name="table_name", allowed_types=(str,))
 
-    if materialization in ('live', -1):  # internally we're treating -1 as live
+    if materialization in ("live", -1):  # internally we're treating -1 as live
         live_query = retry(client.materialize.live_query)
-        data = live_query(table=table_name,
-                          timestamp=dt.datetime.utcnow(),
-                          split_positions=split_positions,
-                          **filters)
+        data = live_query(
+            table=table_name,
+            timestamp=dt.datetime.utcnow(),
+            split_positions=split_positions,
+            **filters,
+        )
     elif materialization:
-        if materialization == 'latest':
+        if materialization == "latest":
             materialization = client.materialize.most_recent_version()
 
         query_table = retry(client.materialize.query_table)
-        data = query_table(materialization_version=materialization,
-                           table=table_name,
-                           split_positions=split_positions,
-                           **filters)
+        data = query_table(
+            materialization_version=materialization,
+            table=table_name,
+            split_positions=split_positions,
+            **filters,
+        )
     else:
-        raise ValueError('It is currently not possible to query the non-'
-                         'materialized tables.')
+        raise ValueError(
+            "It is currently not possible to query the non-materialized tables."
+        )
 
-    if fill_user_info and 'user_id' in data.columns:
-        user_info = get_user_information(data.user_id.unique(), dataset=dataset, raise_missing=False)
-        user_info = {r['id']: r for r in user_info if 'id' in r}
-        data['user_name'] = data.user_id.map(lambda x: user_info.get(x, {}).get('name', None))
-        if fill_user_info == 'full':
-            data['user_pi'] = data.user_id.map(lambda x: user_info.get(x, {}).get('pi', None))
+    if fill_user_info and "user_id" in data.columns:
+        user_info = get_user_information(
+            data.user_id.unique(), dataset=dataset, raise_missing=False
+        )
+        user_info = {r["id"]: r for r in user_info if "id" in r}
+        data["user_name"] = data.user_id.map(
+            lambda x: user_info.get(x, {}).get("name", None)
+        )
+        if fill_user_info == "full":
+            data["user_pi"] = data.user_id.map(
+                lambda x: user_info.get(x, {}).get("pi", None)
+            )
 
-    if drop_invalid and 'valid' in data.columns:
-        data = data[data.valid == 't'].copy()
-        data.drop('valid', axis=1, inplace=True)
+    if drop_invalid and "valid" in data.columns:
+        data = data[data.valid == "t"].copy()
+        data.drop("valid", axis=1, inplace=True)
 
     # There is some weird interaction with pandas and the .attrs if the attrs contain numpy arrays
-    if getattr(data, 'attrs', None):
+    if getattr(data, "attrs", None):
         for k, v in data.attrs.items():
             if isinstance(v, np.ndarray):
                 data.attrs[k] = v.tolist()
@@ -606,11 +684,13 @@ def get_cave_table(table_name: str,
 
 @inject_dataset()
 @lru_cache
-def _get_empty_cave_table(table_name: str,
-                          split_positions: bool = False,
-                          fill_user_info: bool = False,
-                          *,
-                          dataset: Optional[str] = None):
+def _get_empty_cave_table(
+    table_name: str,
+    split_positions: bool = False,
+    fill_user_info: bool = False,
+    *,
+    dataset: Optional[str] = None,
+):
     """Get an empty version of given CAVE table.
 
     Parameters
@@ -637,21 +717,19 @@ def _get_empty_cave_table(table_name: str,
     # Get/Initialize the CAVE client
     client = get_cave_client(dataset=dataset)
 
-    navis.utils.eval_param(table_name, name='table_name', allowed_types=(str, ))
+    navis.utils.eval_param(table_name, name="table_name", allowed_types=(str,))
 
     query_table = retry(client.materialize.query_table)
-    data = query_table(table=table_name,
-                       split_positions=split_positions,
-                       limit=1)
+    data = query_table(table=table_name, split_positions=split_positions, limit=1)
     data = data.iloc[0:0].copy()
 
-    if fill_user_info and 'user_id' in data.columns:
-        data['user_name'] = ''
-        if fill_user_info == 'full':
-            data['user_pi'] = ''
+    if fill_user_info and "user_id" in data.columns:
+        data["user_name"] = ""
+        if fill_user_info == "full":
+            data["user_pi"] = ""
 
     # There is some weird interaction with pandas and the .attrs if the attrs contain numpy arrays
-    if getattr(data, 'attrs', None):
+    if getattr(data, "attrs", None):
         for k, v in data.attrs.items():
             if isinstance(v, np.ndarray):
                 data.attrs[k] = v.tolist()
@@ -659,11 +737,8 @@ def _get_empty_cave_table(table_name: str,
     return data
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
-def delete_annotations(table_name: str,
-                       annotation_ids: list,
-                       *,
-                       dataset=None):
+@inject_dataset(disallowed=["flat_630", "flat_571"])
+def delete_annotations(table_name: str, annotation_ids: list, *, dataset=None):
     """Delete annotations from CAVE annotation table.
 
     Parameters
@@ -687,33 +762,34 @@ def delete_annotations(table_name: str,
     # Get/Initialize the CAVE client
     client = get_cave_client(dataset=dataset)
 
-    navis.utils.eval_param(table_name, name='table_name', allowed_types=(str, ))
-    navis.utils.eval_param(annotation_ids, name='annotation_ids',
-                           allowed_types=(pd.DataFrame, list, np.ndarray, int))
+    navis.utils.eval_param(table_name, name="table_name", allowed_types=(str,))
+    navis.utils.eval_param(
+        annotation_ids,
+        name="annotation_ids",
+        allowed_types=(pd.DataFrame, list, np.ndarray, int),
+    )
 
     if isinstance(annotation_ids, pd.DataFrame):
-        if 'id' not in annotation_ids.columns:
+        if "id" not in annotation_ids.columns:
             raise ValueError('DataFrame must contain an "id" column')
-        annotation_ids = annotation_ids['id'].values
+        annotation_ids = annotation_ids["id"].values
 
     if isinstance(annotation_ids, np.ndarray):
         annotation_ids = annotation_ids.flatten().tolist()
     elif isinstance(annotation_ids, (np.integer, int)):
         annotation_ids = [annotation_ids]
 
-    resp = client.annotation.delete_annotation(table_name=table_name,
-                                               annotation_ids=annotation_ids)
+    resp = client.annotation.delete_annotation(
+        table_name=table_name, annotation_ids=annotation_ids
+    )
 
-    print('Success! See response for details.')
+    print("Success! See response for details.")
 
     return resp
 
 
-@inject_dataset(disallowed=['flat_630', 'flat_571'])
-def upload_annotations(table_name: str,
-                       data: pd.DataFrame,
-                       *,
-                       dataset=None):
+@inject_dataset(disallowed=["flat_630", "flat_571"])
+def upload_annotations(table_name: str, data: pd.DataFrame, *, dataset=None):
     """Upload or update annotations to CAVE table.
 
     Parameters
@@ -772,28 +848,30 @@ def upload_annotations(table_name: str,
     # Get/Initialize the CAVE client
     client = get_cave_client(dataset=dataset)
 
-    navis.utils.eval_param(table_name, name='table_name', allowed_types=(str, ))
-    navis.utils.eval_param(data, name='data', allowed_types=(pd.DataFrame, ))
+    navis.utils.eval_param(table_name, name="table_name", allowed_types=(str,))
+    navis.utils.eval_param(data, name="data", allowed_types=(pd.DataFrame,))
 
-    if 'id' in data.columns:
+    if "id" in data.columns:
         func = client.annotation.update_annotation_df
     else:
         func = client.annotation.post_annotation_df
 
     resp = func(table_name=table_name, df=data, position_columns=None)
 
-    print('Success! See response for details.')
+    print("Success! See response for details.")
 
     return resp
 
 
 @inject_dataset()
-def get_somas(x=None,
-              materialization='auto',
-              raise_missing=True,
-              split_positions=False,
-              *,
-              dataset=None):
+def get_somas(
+    x=None,
+    materialization="auto",
+    raise_missing=True,
+    split_positions=False,
+    *,
+    dataset=None,
+):
     """Fetch nuclei segmentation for given neuron(s).
 
     Parameters
@@ -841,7 +919,7 @@ def get_somas(x=None,
     if isinstance(x, navis.BaseNeuron):
         x = navis.NeuronList(x)
 
-    table_name = NUC_TABLES.get(dataset, NUC_TABLES['default'])
+    table_name = NUC_TABLES.get(dataset, NUC_TABLES["default"])
 
     filter_in_dict = None
     if not isinstance(x, type(None)):
@@ -849,51 +927,63 @@ def get_somas(x=None,
             root_ids = x.id.astype(np.int64)
         else:
             root_ids = make_iterable(x, force_type=np.int64)
-        if materialization == 'auto':
+        if materialization == "auto":
             try:
-                materialization = find_mat_version(root_ids,
-                                                allow_multiple=True,
-                                                raise_missing=raise_missing,
-                                                dataset=dataset)
+                materialization = find_mat_version(
+                    root_ids,
+                    allow_multiple=True,
+                    raise_missing=raise_missing,
+                    dataset=dataset,
+                )
             except MaterializationMatchError as e:
                 if raise_missing:
                     raise e
                 else:
-                    return _get_empty_cave_table(table_name, split_positions=split_positions, dataset=dataset)
+                    return _get_empty_cave_table(
+                        table_name, split_positions=split_positions, dataset=dataset
+                    )
 
             if isinstance(materialization, np.ndarray):
-                materialization = tuple(np.unique(materialization[materialization != 0]).tolist())
-        filter_in_dict = {'pt_root_id': root_ids}
+                materialization = tuple(
+                    np.unique(materialization[materialization != 0]).tolist()
+                )
+        filter_in_dict = {"pt_root_id": root_ids}
 
-    nuc = get_cave_table(table_name,
-                         materialization=materialization,
-                         split_positions=split_positions,
-                         dataset=dataset,
-                         filter_in_dict=filter_in_dict)
-    nuc = nuc.drop_duplicates(['id', 'pt_root_id']).copy()
+    nuc = get_cave_table(
+        table_name,
+        materialization=materialization,
+        split_positions=split_positions,
+        dataset=dataset,
+        filter_in_dict=filter_in_dict,
+    )
+    nuc = nuc.drop_duplicates(["id", "pt_root_id"]).copy()
 
     # Add estimated radius based on nucleus
     if not nuc.empty:
         if not split_positions:
             start = np.vstack(nuc.bb_start_position)
             end = np.vstack(nuc.bb_end_position)
-            nuc.drop(['bb_start_position', 'bb_end_position'],
-                     inplace=True, axis=1)
+            nuc.drop(["bb_start_position", "bb_end_position"], inplace=True, axis=1)
         else:
-            start_cols = [f'bb_start_position_{co}' for co in ['x', 'y', 'z']]
-            end_cols = [f'bb_end_position_{co}' for co in ['x', 'y', 'z']]
+            start_cols = [f"bb_start_position_{co}" for co in ["x", "y", "z"]]
+            end_cols = [f"bb_end_position_{co}" for co in ["x", "y", "z"]]
             start = nuc[start_cols].values
             end = nuc[end_cols].values
             nuc.drop(start_cols + end_cols, inplace=True, axis=1)
-        nuc['rad_est'] = np.abs(start - end).max(axis=1) / 2
+        nuc["rad_est"] = np.abs(start - end).max(axis=1) / 2
 
         # If NeuronList, set their somas
         if isinstance(x, navis.NeuronList):
             if not split_positions:
-                soma_pos = nuc.set_index('pt_root_id').pt_position.to_dict()
+                soma_pos = nuc.set_index("pt_root_id").pt_position.to_dict()
             else:
-                soma_pos = dict(zip(nuc.pt_root_id, nuc[['pt_position_x', 'pt_position_y', 'pt_position_z']].values))
-            soma_rad = nuc.set_index('pt_root_id').rad_est.to_dict()
+                soma_pos = dict(
+                    zip(
+                        nuc.pt_root_id,
+                        nuc[["pt_position_x", "pt_position_y", "pt_position_z"]].values,
+                    )
+                )
+            soma_rad = nuc.set_index("pt_root_id").rad_est.to_dict()
             for n in x:
                 # Skip if no soma found
                 if np.int64(n.id) not in soma_pos:
@@ -901,23 +991,30 @@ def get_somas(x=None,
 
                 if isinstance(n, navis.TreeNeuron):
                     n.soma = n.snap(soma_pos[np.int64(n.id)])[0]
-                    n.nodes.loc[n.nodes.node_id == n.soma, 'radius'] = soma_rad[np.int64(n.id)]
+                    n.nodes.loc[n.nodes.node_id == n.soma, "radius"] = soma_rad[
+                        np.int64(n.id)
+                    ]
                     n._clear_temp_attr()  # not sure why but this is necessary for some reason
                     n.reroot(n.soma, inplace=True)
                 elif isinstance(n, navis.MeshNeuron):
                     n.soma_pos = soma_pos[np.int64(n.id)]
     else:
         # Make sure the column exist even in an empty table
-        nuc['rad_est'] = []
+        nuc["rad_est"] = []
 
     # Sorting by radius makes sure that the small false-positives end up at the
     # bottom of the list
-    return nuc.sort_values('rad_est', ascending=False)
+    return nuc.sort_values("rad_est", ascending=False)
 
 
-def submit_cell_identification(x, split_tags=False, validate=True,
-                               skip_existing=False, max_threads=4,
-                               progress=True):
+def submit_cell_identification(
+    x,
+    split_tags=False,
+    validate=True,
+    skip_existing=False,
+    max_threads=4,
+    progress=True,
+):
     """Submit community annotation(s) for given cell(s).
 
     Requires access to production dataset. Use this bulk submission of cell
@@ -959,18 +1056,20 @@ def submit_cell_identification(x, split_tags=False, validate=True,
 
     """
     if not isinstance(x, pd.DataFrame):
-        raise TypeError(f'Expected DataFrame, got {type(x)}')
+        raise TypeError(f"Expected DataFrame, got {type(x)}")
 
-    REQ_COLS = (('valid_id', 'root_id', 'root', 'id'),
-                ('x', 'pos_x'),
-                ('y', 'pos_y'),
-                ('z', 'pos_z'),
-                ('tag', 'tags'))
+    REQ_COLS = (
+        ("valid_id", "root_id", "root", "id"),
+        ("x", "pos_x"),
+        ("y", "pos_y"),
+        ("z", "pos_z"),
+        ("tag", "tags"),
+    )
     for c in REQ_COLS:
         if isinstance(c, tuple):
             # Check that at least one option exits
             if not any(np.isin(c, x.columns)):
-                raise ValueError(f'`x` must contain one of these column: {c}')
+                raise ValueError(f"`x` must contain one of these column: {c}")
             # Rename so we always find the first possible option
             if c[0] not in x.columns:
                 for v in c[1:]:
@@ -978,65 +1077,76 @@ def submit_cell_identification(x, split_tags=False, validate=True,
                         x = x.rename({v: c[0]}, axis=1)
         else:
             if c not in x:
-                raise ValueError(f'Missing required column: {c}')
+                raise ValueError(f"Missing required column: {c}")
 
     if validate:
-        roots = segmentation.locs_to_segments(x[['x', 'y', 'z']].values)
+        roots = segmentation.locs_to_segments(x[["x", "y", "z"]].values)
 
         is_zero = roots == 0
         if any(is_zero):
-            raise ValueError(f'{is_zero.sum()} xyz coordinates map to root ID 0')
+            raise ValueError(f"{is_zero.sum()} xyz coordinates map to root ID 0")
 
         mm = roots != x.valid_id.astype(np.int64)
         if any(mm):
-            raise ValueError(f'{mm.sum()} xyz coordinates do not map to the '
-                             'provided `valid_id`')
+            raise ValueError(
+                f"{mm.sum()} xyz coordinates do not map to the provided `valid_id`"
+            )
 
     session = requests.Session()
     future_session = FuturesSession(session=session, max_workers=max_threads)
 
     token = get_chunkedgraph_secret()
-    session.headers['Authorization'] = f"Bearer {token}"
+    session.headers["Authorization"] = f"Bearer {token}"
 
     if skip_existing:
-        existing = _get_community_annotation_table(update_ids=True, dataset='production')
+        existing = _get_community_annotation_table(
+            update_ids=True, dataset="production"
+        )
 
     futures = {}
     skipped = []
-    url = 'https://prod.flywire-daf.com/neurons/api/v1/submit_cell_identification'
+    url = "https://prod.flywire-daf.com/neurons/api/v1/submit_cell_identification"
 
     for i, (_, row) in enumerate(x.iterrows()):
         if split_tags:
-            tags = row.tag.split(',')
+            tags = row.tag.split(",")
         else:
             tags = [row.tag]
 
         if skip_existing:
-            existing_tags = existing.loc[existing.pt_root_id == np.int64(row.valid_id),
-                                         'tag'].unique()
+            existing_tags = existing.loc[
+                existing.pt_root_id == np.int64(row.valid_id), "tag"
+            ].unique()
 
         for tag in tags:
             if skip_existing and tag in existing_tags:
                 skipped.append([(i, tag)])
                 continue
 
-            post = dict(valid_id=str(row.valid_id),
-                        location=f'{row.x}, {row.y}, {row.z}',
-                        tag=tag,
-                        action='single',
-                        user_id=row.get('user_id', ''))
+            post = dict(
+                valid_id=str(row.valid_id),
+                location=f"{row.x}, {row.y}, {row.z}",
+                tag=tag,
+                action="single",
+                user_id=row.get("user_id", ""),
+            )
 
             f = future_session.post(url, data=post)
             futures[f] = [i, row.valid_id, row.x, row.y, row.z, tag]
 
     if len(skipped):
-        navis.config.logger.info(f'Skipped {len(skipped)} existing annotations.')
+        navis.config.logger.info(f"Skipped {len(skipped)} existing annotations.")
 
     # Get the responses
-    resp = [f.result() for f in navis.config.tqdm(futures,
-                                                  desc='Submitting',
-                                                  disable=not progress or len(futures) == 1,
-                                                  leave=False)]
+    resp = [
+        f.result()
+        for f in navis.config.tqdm(
+            futures,
+            desc="Submitting",
+            disable=not progress or len(futures) == 1,
+            leave=False,
+        )
+    ]
 
     submitted = []
     for r, f in zip(resp, futures):
@@ -1047,41 +1157,46 @@ def submit_cell_identification(x, split_tags=False, validate=True,
             submitted[-1] += [False, str(e)]
             continue
 
-        if 'Success' not in r.text:
+        if "Success" not in r.text:
             submitted[-1] += [False, r.text]
             continue
 
         submitted[-1] += [True, None]
 
-    submitted = pd.DataFrame(submitted,
-                             columns=['row_ix', 'valid_id', 'x', 'y', 'z', 'tag',
-                                      'success', 'errors'])
+    submitted = pd.DataFrame(
+        submitted,
+        columns=["row_ix", "valid_id", "x", "y", "z", "tag", "success", "errors"],
+    )
 
     if not all(submitted.success):
         failed_ix = submitted[~submitted.success].row_ix.unique().astype(str)
-        navis.config.logger.error(f'Encountered {(~x.success).sum()} errors '
-                                  'while marking cells as proofread. Please '
-                                  'see the `errors` columns in the returned '
-                                  'dataframe for details. Affected rows in '
-                                  f'original dataframe: {", ".join(failed_ix)}')
+        navis.config.logger.error(
+            f"Encountered {(~x.success).sum()} errors "
+            "while marking cells as proofread. Please "
+            "see the `errors` columns in the returned "
+            "dataframe for details. Affected rows in "
+            f"original dataframe: {', '.join(failed_ix)}"
+        )
     else:
-        navis.config.logger.info('SUCCESS!')
+        navis.config.logger.info("SUCCESS!")
 
     return submitted
 
 
 @parse_neuroncriteria()
-@inject_dataset(disallowed=['sandbox'])
-def search_annotations(x,
-                       exact=False,
-                       case=False,
-                       regex=True,
-                       clear_cache=False,
-                       annotation_version=None,
-                       materialization='auto',
-                       verbose=True,
-                       *,
-                       dataset=None):
+@inject_dataset(disallowed=["sandbox"])
+def search_annotations(
+    x,
+    exact=False,
+    case=False,
+    regex=True,
+    clear_cache=False,
+    annotation_version=None,
+    materialization="auto",
+    verbose=True,
+    *,
+    dataset=None,
+):
     """Search hierarchical annotations (super class, cell class, cell type, etc).
 
     Annotations stem from Schlegel et al 2023 (bioRxiv); ~ corresponds to the
@@ -1240,10 +1355,10 @@ def search_annotations(x,
     # Map annotation version to commit
     commit = version_to_commit(annotation_version, verbose=verbose)
 
-    if materialization == 'auto':
+    if materialization == "auto":
         # If query is not a bunch of root IDs, just use the latest version
         if not isinstance(x, np.ndarray) or x.dtype not in (int, np.int64):
-            materialization = 'latest'
+            materialization = "latest"
         else:
             # First check among the available versions
             cached_versions = _get_cached_annotation_materializations(commit)
@@ -1252,18 +1367,22 @@ def search_annotations(x,
                     if _is_valid_version(ids=x, version=version, dataset=dataset):
                         materialization = version
                         if verbose and not utils.SILENCE_FIND_MAT_VERSION:
-                            print(f'Using materialization version {version}.')
+                            print(f"Using materialization version {version}.")
                         break
             else:
-                materialization = find_mat_version(x, raise_missing=False, dataset=dataset, verbose=verbose)
+                materialization = find_mat_version(
+                    x, raise_missing=False, dataset=dataset, verbose=verbose
+                )
 
-    if materialization == 'latest':
+    if materialization == "latest":
         # Map to the latest cached version
         cached_versions = _get_cached_annotation_materializations(commit)
         available_version = get_cave_client(dataset=dataset).materialize.get_versions()
 
         if len(cached_versions):
-            available_and_cached = cached_versions[np.isin(cached_versions, available_version)]
+            available_and_cached = cached_versions[
+                np.isin(cached_versions, available_version)
+            ]
         else:
             available_and_cached = []
 
@@ -1272,14 +1391,16 @@ def search_annotations(x,
         else:
             materialization = sorted(available_version)[-1]
         if verbose and not utils.SILENCE_FIND_MAT_VERSION:
-            print(f'Using materialization version {materialization}.')
+            print(f"Using materialization version {materialization}.")
 
     # Grab the table at the requested materialization
-    ann = get_hierarchical_annotations(annotation_version=annotation_version,
-                                       materialization=materialization,
-                                       dataset=dataset,
-                                       verbose=verbose,
-                                       force_reload=clear_cache)
+    ann = get_hierarchical_annotations(
+        annotation_version=annotation_version,
+        materialization=materialization,
+        dataset=dataset,
+        verbose=verbose,
+        force_reload=clear_cache,
+    )
 
     # If no query term, we'll just return the whole table
     if x is None:
@@ -1287,8 +1408,8 @@ def search_annotations(x,
 
     # Search for given tag if `x` is string
     if isinstance(x, str):
-        if ':' in x:
-            col, x = x.split(':')
+        if ":" in x:
+            col, x = x.split(":")
             col, x = col.strip(), x.strip()  # strip accidental whitespaces
             if col not in ann.columns:
                 raise ValueError(f'Annotation table has no column called "{col}"')
@@ -1296,12 +1417,14 @@ def search_annotations(x,
         else:
             # Get all string columns
             dtypes = ann.dtypes
-            cols = dtypes[(dtypes == object) & ~dtypes.index.str.contains('root')].index
+            cols = dtypes[(dtypes == object) & ~dtypes.index.str.contains("root")].index
 
         filter = np.zeros(len(ann), dtype=bool)
         for col in cols:
             if not exact:
-                filter[ann[col].str.contains(x, case=case, regex=regex, na=False)] = True
+                filter[ann[col].str.contains(x, case=case, regex=regex, na=False)] = (
+                    True
+                )
             elif not regex:
                 filter[ann[col].str == x] = True
             else:
@@ -1310,7 +1433,7 @@ def search_annotations(x,
         # Filter
         ann = ann.loc[filter]
     else:
-        ann = ann[ann['root_id'].isin(x)]
+        ann = ann[ann["root_id"].isin(x)]
 
     # Return copy to avoid setting-on-copy warning
     return ann.copy().reset_index(drop=True)
@@ -1328,64 +1451,68 @@ def version_to_commit(annotation_version, verbose=True):
         if DEFAULT_ANNOTATION_VERSION is None:
             # Use latest commit
             annotation_version_str = "latest tagged release"
-            annotation_version = tags[0]['name']
-            #annotation_version = _get_available_commits()[0]['sha']
+            annotation_version = tags[0]["name"]
+            # annotation_version = _get_available_commits()[0]['sha']
         else:
             annotation_version_str = f"default ({DEFAULT_ANNOTATION_VERSION})"
             annotation_version = DEFAULT_ANNOTATION_VERSION
 
-    if annotation_version == 'latest_tag':
+    if annotation_version == "latest_tag":
         annotation_version_str = "latest tagged release"
-        annotation_version = tags[0]['name']
-    elif annotation_version == 'latest_commit':
+        annotation_version = tags[0]["name"]
+    elif annotation_version == "latest_commit":
         annotation_version_str = "latest commit"
-        annotation_version = _get_available_commits()[0]['sha']
+        annotation_version = _get_available_commits()[0]["sha"]
 
     # Now map the annotation version to the actual commit sha
     sha = None
 
     # See if any of the tags match `annotation_version`
     for t in tags:
-        if annotation_version == t['name']:
-            sha = t['commit']['sha']
+        if annotation_version == t["name"]:
+            sha = t["commit"]["sha"]
             break
     # If still no commit, look for a branch
     if not sha:
         branches = _get_available_branches()
         for b in branches:
-            if annotation_version == b['name']:
-                sha = b['commit']['sha']
+            if annotation_version == b["name"]:
+                sha = b["commit"]["sha"]
                 break
     # If still no commit, look for an actual commit
     if not sha:
         all_commits = _get_available_commits()
         for c in all_commits:
-            if c['sha'].startswith(annotation_version):
-                sha = c['sha']
+            if c["sha"].startswith(annotation_version):
+                sha = c["sha"]
                 break
 
     # If still no commit, raise error
     if not sha:
-        raise ValueError(f'`annotation_version="{annotation_version}"` could not '
-                         'be mapped to a commit.\n'
-                         f'Available versions are: {", ".join([t["name"] for t in tags])}\n'
-                         f'Available branches are: {", ".join([b["name"] for b in branches])}')
+        raise ValueError(
+            f'`annotation_version="{annotation_version}"` could not '
+            "be mapped to a commit.\n"
+            f"Available versions are: {', '.join([t['name'] for t in tags])}\n"
+            f"Available branches are: {', '.join([b['name'] for b in branches])}"
+        )
 
     # Report which version we are using on first call
     global _CURRENT_ANNOTATION_COMMIT
     if _CURRENT_ANNOTATION_COMMIT != sha:
         all_commits = _get_available_commits()
         for c in all_commits:
-            if c['sha'] == sha:
+            if c["sha"] == sha:
                 commit = c
                 break
         try:
             # This works if we have a commit date
             date = f" from {dt.datetime.fromisoformat(commit['commit']['author']['date']).date()}"
         except BaseException:
-            date = ''
+            date = ""
         if verbose:
-            print(f'Using annotation version "{annotation_version_str}" ({sha[:7]}{date}) from https://github.com/flyconnectome/flywire_annotations.')
+            print(
+                f'Using annotation version "{annotation_version_str}" ({sha[:7]}{date}) from https://github.com/flyconnectome/flywire_annotations.'
+            )
         _CURRENT_ANNOTATION_COMMIT = sha
 
     return sha
@@ -1396,22 +1523,24 @@ def clear_cached_annotations():
     cache_dir = Path(CACHE_DIR).expanduser().absolute()
 
     # Delete all files in cache_dir that match "flywire_annotations@*.tsv"
-    cached = [f.name for f in cache_dir.glob('flywire_annotations@*.tsv')]
+    cached = [f.name for f in cache_dir.glob("flywire_annotations@*.tsv")]
 
     for c in cached:
         fp = cache_dir / c
         if fp.exists():
             fp.unlink()
-            print(f'Deleted {fp}.')
+            print(f"Deleted {fp}.")
 
 
 @inject_dataset()
-def get_hierarchical_annotations(annotation_version=None,
-                                 materialization=None,
-                                 force_reload=False,
-                                 verbose=True,
-                                 *,
-                                 dataset=None):
+def get_hierarchical_annotations(
+    annotation_version=None,
+    materialization=None,
+    force_reload=False,
+    verbose=True,
+    *,
+    dataset=None,
+):
     """Download (and cache) hierarchical annotations.
 
     Annotations stem from Schlegel et al 2023 (bioRxiv); corresponds to largely
@@ -1471,7 +1600,7 @@ def get_hierarchical_annotations(annotation_version=None,
             FLYWIRE_ANNOT_URL.format(commit=commit),
             filename=fp,
             force_reload=force_reload,
-            verbose=verbose
+            verbose=verbose,
         )
     except requests.HTTPError:
         # Prior to v2.0.0 the annotation file had a different name
@@ -1479,31 +1608,33 @@ def get_hierarchical_annotations(annotation_version=None,
             FLYWIRE_ANNOT_URL_OLD.format(commit=commit),
             filename=fp,
             force_reload=force_reload,
-            verbose=verbose
+            verbose=verbose,
         )
 
     # Read the actual table from disk
     table = pd.read_csv(fp, sep="\t", low_memory=False)
 
     # Turn supervoxel and all root ID columns into integers
-    dtypes = {'supervoxel_id': np.int64}
-    dtypes.update({c: np.int64 for c in table.columns if str(c).startswith('root_')})
+    dtypes = {"supervoxel_id": np.int64}
+    dtypes.update({c: np.int64 for c in table.columns if str(c).startswith("root_")})
     table = table.astype(dtypes)
 
     # Map to the latest version
-    if materialization == 'latest':
+    if materialization == "latest":
         client = get_cave_client()
         materialization = sorted(client.materialize.get_versions())[-1]
 
     # If mat is live we need to check for outdated IDs
     save = False
-    if materialization in ("live", "current") and (dataset == 'production'):
+    if materialization in ("live", "current") and (dataset == "production"):
         if "root_live" not in table.columns:
             table["root_live"] = table["root_id"]
             root_col = "root_live"
-        to_update = ~segmentation.is_latest_root(table.root_live, progress=False, dataset=dataset)
+        to_update = ~segmentation.is_latest_root(
+            table.root_live, progress=False, dataset=dataset
+        )
         if any(to_update):
-            if verbose and not os.environ.get('FAFBSEG_TESTING', False):
+            if verbose and not os.environ.get("FAFBSEG_TESTING", False):
                 print(
                     "Updating root IDs for hierarchical annotations... ",
                     end="",
@@ -1518,7 +1649,7 @@ def get_hierarchical_annotations(annotation_version=None,
     elif materialization:
         root_col = f"root_{materialization}"
         if root_col not in table.columns:
-            if verbose and not os.environ.get('FAFBSEG_TESTING', False):
+            if verbose and not os.environ.get("FAFBSEG_TESTING", False):
                 print(
                     "Caching root IDs for hierarchical annotations at "
                     f"materialization '{materialization}'... ",
@@ -1527,25 +1658,24 @@ def get_hierarchical_annotations(annotation_version=None,
                 )
             save = True
             table[root_col] = segmentation.supervoxels_to_roots(
-                table.supervoxel_id,
-                timestamp=f"mat_{materialization}",
-                progress=False
+                table.supervoxel_id, timestamp=f"mat_{materialization}", progress=False
             )
     else:
-        root_col = 'root_id'
+        root_col = "root_id"
 
     # If me made changes (i.e. updated the root ID column) save this back to disk
     # so we don't have to do it again
     if save:
-        table.to_csv(fp, index=False, sep='\t')
-        if verbose and not os.environ.get('FAFBSEG_TESTING', False):
-            print('Done.', flush=True)
+        table.to_csv(fp, index=False, sep="\t")
+        if verbose and not os.environ.get("FAFBSEG_TESTING", False):
+            print("Done.", flush=True)
 
     # Make sure "root_id" corresponds to the requested materialization and drop
     # all others "root_xxx" columns to avoid confusion
-    table['root_id'] = table[root_col]
-    table = table.drop([c for c in table.columns if ('root_' in c) and (c != 'root_id')],
-                       axis=1)
+    table["root_id"] = table[root_col]
+    table = table.drop(
+        [c for c in table.columns if ("root_" in c) and (c != "root_id")], axis=1
+    )
 
     return table
 
@@ -1564,10 +1694,10 @@ def _get_cached_annotation_materializations(commit):
     # Parse root ID columns
     mats = []
     for col in table.columns:
-        if not col.startswith('root_'):
+        if not col.startswith("root_"):
             continue
         try:
-            this_mat = int(col.replace('root_', ''))
+            this_mat = int(col.replace("root_", ""))
             mats.append(this_mat)
         except ValueError:
             pass
@@ -1579,8 +1709,8 @@ def _get_cached_annotation_materializations(commit):
 def _get_github_session():
     s = requests.Session()
     if "GITHUB_PAT" in os.environ:
-        s.auth = ('user', 'pass')
-        s.headers.update({'Authorization': f"Bearer {os.environ['GITHUB_PAT']}"})
+        s.auth = ("user", "pass")
+        s.headers.update({"Authorization": f"Bearer {os.environ['GITHUB_PAT']}"})
 
     return s
 
@@ -1588,7 +1718,9 @@ def _get_github_session():
 @lru_cache
 def _get_available_annotation_versions():
     # Get available tags
-    r = _get_github_session().get("https://api.github.com/repos/flyconnectome/flywire_annotations/tags")
+    r = _get_github_session().get(
+        "https://api.github.com/repos/flyconnectome/flywire_annotations/tags"
+    )
     r.raise_for_status()
     return r.json()
 
@@ -1596,7 +1728,9 @@ def _get_available_annotation_versions():
 @lru_cache
 def _get_available_commits():
     # Get available commits
-    r = _get_github_session().get("https://api.github.com/repos/flyconnectome/flywire_annotations/commits")
+    r = _get_github_session().get(
+        "https://api.github.com/repos/flyconnectome/flywire_annotations/commits"
+    )
     r.raise_for_status()
     return r.json()
 
@@ -1604,7 +1738,9 @@ def _get_available_commits():
 @lru_cache
 def _get_available_branches():
     # Get available tags
-    r = _get_github_session().get("https://api.github.com/repos/flyconnectome/flywire_annotations/branches")
+    r = _get_github_session().get(
+        "https://api.github.com/repos/flyconnectome/flywire_annotations/branches"
+    )
     r.raise_for_status()
     return r.json()
 
@@ -1637,12 +1773,14 @@ def get_user_information(user_ids, field=None, raise_missing=True, dataset=None)
     # Fetch info for missing IDs and update cache
     if len(missing):
         client = get_cave_client(dataset=dataset)
-        _user_information.update({r['id']: r for r in client.auth.get_user_information(missing)})
+        _user_information.update(
+            {r["id"]: r for r in client.auth.get_user_information(missing)}
+        )
 
     if raise_missing:
         missing = [i for i in user_ids if i not in _user_information]
         if len(missing):
-            raise ValueError(f'Could not find user information for user IDs: {missing}')
+            raise ValueError(f"Could not find user information for user IDs: {missing}")
 
     if field is None:
         return [_user_information.get(i, {}) for i in user_ids]
@@ -1650,16 +1788,18 @@ def get_user_information(user_ids, field=None, raise_missing=True, dataset=None)
         return [_user_information.get(i, {}).get(field, None) for i in user_ids]
 
 
-@inject_dataset(disallowed=['sandbox'])
-def search_community_annotations(x,
-                   exact=False,
-                   case=False,
-                   regex=True,
-                   clear_cache=False,
-                   verbose=True,
-                   *,
-                   materialization='auto',
-                   dataset=None):
+@inject_dataset(disallowed=["sandbox"])
+def search_community_annotations(
+    x,
+    exact=False,
+    case=False,
+    regex=True,
+    clear_cache=False,
+    verbose=True,
+    *,
+    materialization="auto",
+    dataset=None,
+):
     """Search community cell identification annotations for given term/root IDs.
 
     This function loads and caches the cell type information table, i.e. the
@@ -1765,20 +1905,24 @@ def search_community_annotations(x,
         except ValueError:
             pass
 
-    if materialization == 'auto':
+    if materialization == "auto":
         if isinstance(x, np.ndarray):
-            materialization = find_mat_version(x, raise_missing=False, dataset=dataset, verbose=verbose)
+            materialization = find_mat_version(
+                x, raise_missing=False, dataset=dataset, verbose=verbose
+            )
         else:
-            materialization = 'latest'
+            materialization = "latest"
 
     if clear_cache:
         _get_community_annotation_table.cache_clear()
 
     # Grab the table at the requested materialization
-    ct = _get_community_annotation_table(dataset=dataset,
-                                         split_positions=True,
-                                         verbose=verbose,
-                                         materialization=materialization)
+    ct = _get_community_annotation_table(
+        dataset=dataset,
+        split_positions=True,
+        verbose=verbose,
+        materialization=materialization,
+    )
 
     # If no query term, we'll just return the whole table
     if x is None:
@@ -1797,49 +1941,70 @@ def search_community_annotations(x,
         ct = ct.copy()
 
         # Rename columns to make it less clunky to work with
-        ct = ct.rename({'pt_position_x': 'pos_x',
-                        'pt_position_y': 'pos_y',
-                        'pt_position_z': 'pos_z',
-                        'pt_root_id': 'root_id',
-                        'pt_supervoxel_id': 'supervoxel_id'},
-                        axis=1)
+        ct = ct.rename(
+            {
+                "pt_position_x": "pos_x",
+                "pt_position_y": "pos_y",
+                "pt_position_z": "pos_z",
+                "pt_root_id": "root_id",
+                "pt_supervoxel_id": "supervoxel_id",
+            },
+            axis=1,
+        )
 
         # Convert from nm to voxel space
-        ct[['pos_x', 'pos_y', 'pos_z']] //= [4, 4, 40]
+        ct[["pos_x", "pos_y", "pos_z"]] //= [4, 4, 40]
     else:
         ct = ct[ct.pt_root_id.isin(x)]
 
     if not ct.empty:
-        name_map = dict(zip(ct.user_id.unique(),
-                            get_user_information(ct.user_id.unique(), field='name', raise_missing=False, dataset=dataset)))
-        ct.insert(ct.columns.tolist().index('user_id'),
-                  'user',
-                  ct.user_id.map(name_map))
+        name_map = dict(
+            zip(
+                ct.user_id.unique(),
+                get_user_information(
+                    ct.user_id.unique(),
+                    field="name",
+                    raise_missing=False,
+                    dataset=dataset,
+                ),
+            )
+        )
+        ct.insert(
+            ct.columns.tolist().index("user_id"), "user", ct.user_id.map(name_map)
+        )
 
     return ct.reset_index(drop=True)
 
 
 @lru_cache
-def _get_community_annotation_table(dataset, materialization, split_positions=False, verbose=True):
+def _get_community_annotation_table(
+    dataset, materialization, split_positions=False, verbose=True
+):
     """Fetch (and cache) annotation tables."""
-    if materialization == 'latest':
+    if materialization == "latest":
         versions = get_cave_client(dataset=dataset).materialize.get_versions()
         materialization = sorted(versions)[-1]
 
-    if verbose and not os.environ.get('FAFBSEG_TESTING', False):
-        print(f'Caching community annotations for materialization version "{materialization}"...',
-              end='', flush=True)
-    table = get_cave_table(table_name=COMMUNITY_ANNOTATION_TABLE,
-                           dataset=dataset,
-                           split_positions=split_positions,
-                           materialization=materialization)
-    if verbose and not os.environ.get('FAFBSEG_TESTING', False):
-        print(' Done.')
+    if verbose and not os.environ.get("FAFBSEG_TESTING", False):
+        print(
+            f'Caching community annotations for materialization version "{materialization}"...',
+            end="",
+            flush=True,
+        )
+    table = get_cave_table(
+        table_name=COMMUNITY_ANNOTATION_TABLE,
+        dataset=dataset,
+        split_positions=split_positions,
+        materialization=materialization,
+    )
+    if verbose and not os.environ.get("FAFBSEG_TESTING", False):
+        print(" Done.")
     return table
 
 
-def mark_cell_completion(x, validate=True, skip_existing=True,
-                         max_threads=4, progress=True):
+def mark_cell_completion(
+    x, validate=True, skip_existing=True, max_threads=4, progress=True
+):
     """Submit proofread status for given cell.
 
     Use this bulk submission of proofreading status with great care! Requires
@@ -1872,17 +2037,19 @@ def mark_cell_completion(x, validate=True, skip_existing=True,
 
     """
     if not isinstance(x, pd.DataFrame):
-        raise TypeError(f'Expected DataFrame, got {type(x)}')
+        raise TypeError(f"Expected DataFrame, got {type(x)}")
 
-    REQ_COLS = (('valid_id', 'root_id', 'root', 'id'),
-                ('x', 'pos_x'),
-                ('y', 'pos_y'),
-                ('z', 'pos_z'))
+    REQ_COLS = (
+        ("valid_id", "root_id", "root", "id"),
+        ("x", "pos_x"),
+        ("y", "pos_y"),
+        ("z", "pos_z"),
+    )
     for c in REQ_COLS:
         if isinstance(c, tuple):
             # Check that at least one option exits
             if not any(np.isin(c, x.columns)):
-                raise ValueError(f'`x` must contain one of these column: {c}')
+                raise ValueError(f"`x` must contain one of these column: {c}")
             # Rename so we always find the first possible option
             if c[0] not in x.columns:
                 for v in c[1:]:
@@ -1890,65 +2057,71 @@ def mark_cell_completion(x, validate=True, skip_existing=True,
                         x = x.rename({v: c[0]}, axis=1)
         else:
             if c not in x:
-                raise ValueError(f'Missing required column: {c}')
+                raise ValueError(f"Missing required column: {c}")
 
     if validate:
-        roots = segmentation.locs_to_segments(x[['x', 'y', 'z']].values)
+        roots = segmentation.locs_to_segments(x[["x", "y", "z"]].values)
 
         is_zero = roots == 0
         if any(is_zero):
-            raise ValueError(f'{is_zero.sum()} xyz coordinates map to root ID 0')
+            raise ValueError(f"{is_zero.sum()} xyz coordinates map to root ID 0")
 
         mm = roots != x.valid_id.astype(np.int64)
         if any(mm):
-            raise ValueError(f'{mm.sum()} xyz coordinates do not map to the '
-                             'provided `valid_id`')
+            raise ValueError(
+                f"{mm.sum()} xyz coordinates do not map to the provided `valid_id`"
+            )
 
         u, cnt = np.unique(roots, return_counts=True)
         if any(cnt > 1):
-            raise ValueError(f'{(cnt > 1).sum()} root IDs are duplicated: '
-                             f'{u[cnt > 1]}')
+            raise ValueError(f"{(cnt > 1).sum()} root IDs are duplicated: {u[cnt > 1]}")
 
     if skip_existing:
         pr = is_proofread(x.valid_id.values)
         if any(pr):
-            navis.config.logger.info(f'Dropping {pr.sum()} neurons that have '
-                                     'already been proofread')
+            navis.config.logger.info(
+                f"Dropping {pr.sum()} neurons that have already been proofread"
+            )
             x = x[~pr]
         if x.empty:
-            navis.config.logger.info('Looks like all neurons have already '
-                                     'been set to proofread')
-            return pd.DataFrame(columns=['valid_id', 'x', 'y', 'z', 'success', 'errors'])
+            navis.config.logger.info(
+                "Looks like all neurons have already been set to proofread"
+            )
+            return pd.DataFrame(
+                columns=["valid_id", "x", "y", "z", "success", "errors"]
+            )
 
-    if 'user_id' not in x.columns:
-        x['user_id'] = ''
+    if "user_id" not in x.columns:
+        x["user_id"] = ""
 
     session = requests.Session()
     future_session = FuturesSession(session=session, max_workers=max_threads)
 
     token = get_chunkedgraph_secret()
-    session.headers['Authorization'] = f"Bearer {token}"
+    session.headers["Authorization"] = f"Bearer {token}"
 
     futures = {}
-    url = 'https://prod.flywire-daf.com/neurons/api/v1/mark_completion'
-    for i_, x_, y_, z_, u_ in zip(x.valid_id.values,
-                                 x.x.values,
-                                 x.y.values,
-                                 x.z.values,
-                                 x.user_id.values):
-        post = dict(valid_id=str(i_),
-                    location=f'{x_}, {y_}, {z_}',
-                    action='single',
-                    user_id=u_)
+    url = "https://prod.flywire-daf.com/neurons/api/v1/mark_completion"
+    for i_, x_, y_, z_, u_ in zip(
+        x.valid_id.values, x.x.values, x.y.values, x.z.values, x.user_id.values
+    ):
+        post = dict(
+            valid_id=str(i_), location=f"{x_}, {y_}, {z_}", action="single", user_id=u_
+        )
 
         f = future_session.post(url, data=post)
         futures[f] = post
 
     # Get the responses
-    resp = [f.result() for f in navis.config.tqdm(futures,
-                                                  desc='Submitting',
-                                                  disable=not progress or len(futures) == 1,
-                                                  leave=False)]
+    resp = [
+        f.result()
+        for f in navis.config.tqdm(
+            futures,
+            desc="Submitting",
+            disable=not progress or len(futures) == 1,
+            leave=False,
+        )
+    ]
 
     success = []
     errors = []
@@ -1960,7 +2133,7 @@ def mark_cell_completion(x, validate=True, skip_existing=True,
             errors.append(str(e))
             continue
 
-        if 'Success' not in r.text:
+        if "Success" not in r.text:
             success.append(False)
             errors.append(r.text)
             continue
@@ -1968,22 +2141,24 @@ def mark_cell_completion(x, validate=True, skip_existing=True,
         success.append(True)
         errors.append(None)
 
-    x = x[['valid_id', 'x', 'y', 'z']].copy()
-    x['success'] = success
-    x['errors'] = errors
+    x = x[["valid_id", "x", "y", "z"]].copy()
+    x["success"] = success
+    x["errors"] = errors
 
     if not all(x.success):
-        navis.config.logger.error(f'Encountered {(~x.success).sum()} errors '
-                                  'while submitting cell identifications. Please '
-                                  'see the `errors` columns in the returned '
-                                  'dataframe for details.')
+        navis.config.logger.error(
+            f"Encountered {(~x.success).sum()} errors "
+            "while submitting cell identifications. Please "
+            "see the `errors` columns in the returned "
+            "dataframe for details."
+        )
     else:
-        navis.config.logger.info('SUCCESS!')
+        navis.config.logger.info("SUCCESS!")
 
     return x
 
 
-class NeuronCriteria():
+class NeuronCriteria:
     """Parses filter queries into root IDs.
 
     This class is typically passed as an argument to a function and will
@@ -2111,29 +2286,35 @@ class NeuronCriteria():
     4  720575940635945919  720575940619385765      87
 
     """
+
     @inject_dataset()
-    def __init__(self,
-                 *,
-                 regex=False,
-                 case=False,
-                 verbose=True,
-                 dataset=None,
-                 annotation_version=None,
-                 materialization=None,
-                 **criteria):
+    def __init__(
+        self,
+        *,
+        regex=False,
+        case=False,
+        verbose=True,
+        dataset=None,
+        annotation_version=None,
+        materialization=None,
+        **criteria,
+    ):
         # If no criteria make sure this is intended
         if not len(criteria):
-            navis.config.logger.warning('No criteria specified. This will query all neurons!')
+            navis.config.logger.warning(
+                "No criteria specified. This will query all neurons!"
+            )
 
         # Make sure all criteria are valid fields
         for field in criteria:
             if field in self.available_fields():
                 break
-            bm = fw.process.extractBests(field,
-                                         self.available_fields().tolist(),
-                                         scorer=fw.fuzz.token_sort_ratio)[0][0]
-            raise ValueError(f'"{field}" is not a searchable field. '
-                             f'Did you mean "{bm}"?')
+            bm = fw.process.extractBests(
+                field, self.available_fields().tolist(), scorer=fw.fuzz.token_sort_ratio
+            )[0][0]
+            raise ValueError(
+                f'"{field}" is not a searchable field. Did you mean "{bm}"?'
+            )
         self.criteria = criteria
         self.annotation_version = annotation_version
         self.materialization = materialization
@@ -2144,17 +2325,17 @@ class NeuronCriteria():
         self._annotations = None
 
     def __iter__(self):
-        if not hasattr(self, '_roots'):
+        if not hasattr(self, "_roots"):
             self._roots = self.get_roots()
         return iter(self._roots)
 
     def __len__(self):
-        if not hasattr(self, '_roots'):
+        if not hasattr(self, "_roots"):
             self._roots = self.get_roots()
         return len(self._roots)
 
     def __contains__(self, item):
-        if not hasattr(self, '_roots'):
+        if not hasattr(self, "_roots"):
             self._roots = self.get_roots()
         return item in self._roots
 
@@ -2167,20 +2348,24 @@ class NeuronCriteria():
     def annotations(self):
         """Return hierarchical annotations."""
         if self._annotations is None:
-            self._annotations = get_hierarchical_annotations(materialization=self.materialization,
-                                                             dataset=self.dataset,
-                                                             annotation_version=self.annotation_version,
-                                                             verbose=self.verbose,
-                                                             force_reload=False)
+            self._annotations = get_hierarchical_annotations(
+                materialization=self.materialization,
+                dataset=self.dataset,
+                annotation_version=self.annotation_version,
+                verbose=self.verbose,
+                force_reload=False,
+            )
         return self._annotations
 
     @property
     def community_annotations(self):
         """Return community annotations for the given materialization."""
-        return _get_community_annotation_table(dataset=self.dataset,
-                                               materialization=self.materialization,
-                                               split_positions=False,
-                                               verbose=self.verbose)
+        return _get_community_annotation_table(
+            dataset=self.dataset,
+            materialization=self.materialization,
+            split_positions=False,
+            verbose=self.verbose,
+        )
 
     @property
     def is_empty(self):
@@ -2196,37 +2381,55 @@ class NeuronCriteria():
         if not len(self.criteria):
             roots = self.annotations.root_id.unique()
             if self.verbose:
-                print(f'Querying all {len(roots)} neurons!')
+                print(f"Querying all {len(roots)} neurons!")
             return roots
 
         # If at least one criteria that's in the hierarchical annotations table
-        if len({k for k in self.criteria if k != 'community_annotation'}):
+        if len({k for k in self.criteria if k != "community_annotation"}):
             ann = self.annotations
             # Apply our filters
             for field, value in self.criteria.items():
                 # Skip community annotations (will deal with them later)
-                if field == 'community_annotation':
+                if field == "community_annotation":
                     continue
                 # For "type" we will filter on both "cell_type" and
                 # "hemibrain_type" columns and merge the results
-                elif field == 'type':
-                    ann = pd.concat((_filter_table(ann, 'cell_type', value, regex=self.regex, case=self.case),
-                                     _filter_table(ann, 'hemibrain_type', value, regex=self.regex, case=self.case)),
-                                     axis=0).drop_duplicates('root_id')
+                elif field == "type":
+                    ann = pd.concat(
+                        (
+                            _filter_table(
+                                ann,
+                                "cell_type",
+                                value,
+                                regex=self.regex,
+                                case=self.case,
+                            ),
+                            _filter_table(
+                                ann,
+                                "hemibrain_type",
+                                value,
+                                regex=self.regex,
+                                case=self.case,
+                            ),
+                        ),
+                        axis=0,
+                    ).drop_duplicates("root_id")
                 # Everything else is just a simple filter
                 else:
-                    ann = _filter_table(ann, field, value, regex=self.regex, case=self.case)
+                    ann = _filter_table(
+                        ann, field, value, regex=self.regex, case=self.case
+                    )
 
             roots = ann.root_id.unique()
 
         # If we have a community annotation
-        if 'community_annotation' in self.criteria:
+        if "community_annotation" in self.criteria:
             # Make sure we're working with strings
-            value = match_dtype(self.criteria['community_annotation'], str)
+            value = match_dtype(self.criteria["community_annotation"], str)
             # Get the community annotation table
             cann = self.community_annotations
 
-            cann = _filter_table(cann, 'tag', value, regex=self.regex, case=self.case)
+            cann = _filter_table(cann, "tag", value, regex=self.regex, case=self.case)
 
             # Check if we need to intersect with hierarchical annotations
             if len(self.criteria) > 1:
@@ -2239,15 +2442,18 @@ class NeuronCriteria():
                 roots = cann.pt_root_id.unique()
 
         if not len(roots):
-            raise NoMatchesError('No neurons found matching the given criteria.')
+            raise NoMatchesError("No neurons found matching the given criteria.")
         elif self.verbose:
-            print(f'Found {len(roots)} {"neurons" if len(roots) >1 else "neuron"} matching the given criteria.')
+            print(
+                f"Found {len(roots)} {'neurons' if len(roots) > 1 else 'neuron'} matching the given criteria."
+            )
 
         return np.unique(roots)
 
 
 class NoMatchesError(ValueError):
     """Raised if no matches are found."""
+
     pass
 
 
@@ -2255,14 +2461,14 @@ def _filter_table(table, column, value, regex=False, case=False):
     """Little helper function to filter given table."""
     # Make sure the criteria and the field have the same data type
     dt = table[column].dtype
-    is_str_col = hasattr(table[column], 'str')
+    is_str_col = hasattr(table[column], "str")
     try:
         value = match_dtype(value, dt)
     except BaseException:
         raise ValueError(f'Unable to convert value for field "{column}" into type {dt}')
     if navis.utils.is_iterable(value):
         if regex and is_str_col:
-            table = table[table[column].str.match('|'.join(value), na=False, case=case)]
+            table = table[table[column].str.match("|".join(value), na=False, case=case)]
         elif is_str_col and not case:
             table = table[table[column].str.lower().isin([v.lower() for v in value])]
         else:
@@ -2299,22 +2505,28 @@ def set_default_annotation_version(version):
     Default annotation version set to tag "v2.0.0".
 
     """
-    branches = [b['name'] for b in _get_available_branches()]
-    tags = [t['name'] for t in _get_available_annotation_versions()]
+    branches = [b["name"] for b in _get_available_branches()]
+    tags = [t["name"] for t in _get_available_annotation_versions()]
 
     if version:
-        if version in ('latest_commit', 'latest_tag'):
+        if version in ("latest_commit", "latest_tag"):
             pass
         elif version in branches:
-            print(f'Default annotation version set to latest commit in branch "{version}".')
+            print(
+                f'Default annotation version set to latest commit in branch "{version}".'
+            )
         elif version in tags:
             print(f'Default annotation version set to tag "{version}".')
         else:
-            raise ValueError(f'`version="{version}" not found.\n'
-                            f'Available tags: {", ".join(tags)}\n'
-                            f'Available branches: {", ".join(branches)}\n')
+            raise ValueError(
+                f'`version="{version}" not found.\n'
+                f"Available tags: {', '.join(tags)}\n"
+                f"Available branches: {', '.join(branches)}\n"
+            )
     else:
-        print('Default annotation version set to `None` (will use latest release on "main" branch).')
+        print(
+            'Default annotation version set to `None` (will use latest release on "main" branch).'
+        )
 
     global DEFAULT_ANNOTATION_VERSION
     DEFAULT_ANNOTATION_VERSION = version
