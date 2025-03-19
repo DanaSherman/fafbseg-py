@@ -41,7 +41,7 @@ from ..utils import make_iterable, download_cache_file, CACHE_DIR
 from .utils import (get_cave_client, retry, get_chunkedgraph_secret,
                     find_mat_version, inject_dataset, _is_valid_version,
                     match_dtype, MaterializationMatchError)
-from . import segmentation  # this is to avoid circular imports
+from . import segmentation, utils  # this is to avoid circular imports
 
 ANNOT_REPO_URL = "https://api.github.com/repos/flyconnectome/flywire_annotations"
 FLYWIRE_ANNOT_URL = "https://github.com/flyconnectome/flywire_annotations/raw/{commit}/supplemental_files/Supplemental_file1_neuron_annotations.tsv"
@@ -1079,6 +1079,7 @@ def search_annotations(x,
                        clear_cache=False,
                        annotation_version=None,
                        materialization='auto',
+                       verbose=True,
                        *,
                        dataset=None):
     """Search hierarchical annotations (super class, cell class, cell type, etc).
@@ -1125,6 +1126,8 @@ def search_annotations(x,
                  - "latest": uses the latest available materialization
                  - integer: specifies a materialization version
                  - "live": looks up the most recent root IDs from the supervoxels
+    verbose :   bool
+                Whether to print information on which annotation version is used.
     dataset :   "public" | "production", optional
                 Against which FlyWire dataset to query. If ``None`` will fall
                 back to the default dataset - see
@@ -1189,7 +1192,7 @@ def search_annotations(x,
     >>> ps009 = flywire.search_annotations('PS009', exact=True)
     Using materialization version 783.
 
-    You can use "colum:value" as shorthand to search a specific field:
+    You can use "column:value" as shorthand to search a specific field:
 
     >>> phn = flywire.search_annotations('nerve:PhN')
     Using materialization version 783.
@@ -1235,7 +1238,7 @@ def search_annotations(x,
             pass
 
     # Map annotation version to commit
-    commit = version_to_commit(annotation_version)
+    commit = version_to_commit(annotation_version, verbose=verbose)
 
     if materialization == 'auto':
         # If query is not a bunch of root IDs, just use the latest version
@@ -1248,10 +1251,11 @@ def search_annotations(x,
                 for version in sorted(cached_versions)[::-1]:
                     if _is_valid_version(ids=x, version=version, dataset=dataset):
                         materialization = version
-                        print(f'Using materialization version {version}.')
+                        if verbose and not utils.SILENCE_FIND_MAT_VERSION:
+                            print(f'Using materialization version {version}.')
                         break
             else:
-                materialization = find_mat_version(x, raise_missing=False, dataset=dataset)
+                materialization = find_mat_version(x, raise_missing=False, dataset=dataset, verbose=verbose)
 
     if materialization == 'latest':
         # Map to the latest cached version
@@ -1267,12 +1271,14 @@ def search_annotations(x,
             materialization = sorted(available_and_cached)[-1]
         else:
             materialization = sorted(available_version)[-1]
-        print(f'Using materialization version {materialization}.')
+        if verbose and not utils.SILENCE_FIND_MAT_VERSION:
+            print(f'Using materialization version {materialization}.')
 
     # Grab the table at the requested materialization
     ann = get_hierarchical_annotations(annotation_version=annotation_version,
                                        materialization=materialization,
                                        dataset=dataset,
+                                       verbose=verbose,
                                        force_reload=clear_cache)
 
     # If no query term, we'll just return the whole table
@@ -1310,7 +1316,7 @@ def search_annotations(x,
     return ann.copy().reset_index(drop=True)
 
 
-def version_to_commit(annotation_version):
+def version_to_commit(annotation_version, verbose=True):
     """Map version to commit."""
     # Get available tags for the repo
     tags = _get_available_annotation_versions()
@@ -1378,7 +1384,8 @@ def version_to_commit(annotation_version):
             date = f" from {dt.datetime.fromisoformat(commit['commit']['author']['date']).date()}"
         except BaseException:
             date = ''
-        print(f'Using annotation version "{annotation_version_str}" ({sha[:7]}{date}) from https://github.com/flyconnectome/flywire_annotations.')
+        if verbose:
+            print(f'Using annotation version "{annotation_version_str}" ({sha[:7]}{date}) from https://github.com/flyconnectome/flywire_annotations.')
         _CURRENT_ANNOTATION_COMMIT = sha
 
     return sha
@@ -1455,7 +1462,7 @@ def get_hierarchical_annotations(annotation_version=None,
     """
     # Map annotation version to commit. This also takes care of parsing
     # the default annotation version if `annotation_version` is None
-    commit = version_to_commit(annotation_version)
+    commit = version_to_commit(annotation_version, verbose=verbose)
 
     # Load the file from cache or download it
     fp = Path(CACHE_DIR).expanduser().absolute() / f"flywire_annotations@{commit}.tsv"
@@ -1649,6 +1656,7 @@ def search_community_annotations(x,
                    case=False,
                    regex=True,
                    clear_cache=False,
+                   verbose=True,
                    *,
                    materialization='auto',
                    dataset=None):
@@ -1678,6 +1686,9 @@ def search_community_annotations(x,
                 provide an ID (int) for a specific materialization
                 version (see ``get_materialization_versions``). "auto" is only
                 relevant if `x` is a list of root IDs.
+    verbose :   bool
+                Whether to print information on e.g. which materialization version
+                is used.
     dataset :   "public" | "production", optional
                 Against which FlyWire dataset to query. If ``None`` will fall
                 back to the default dataset (see also
@@ -1756,7 +1767,7 @@ def search_community_annotations(x,
 
     if materialization == 'auto':
         if isinstance(x, np.ndarray):
-            materialization = find_mat_version(x, raise_missing=False, dataset=dataset)
+            materialization = find_mat_version(x, raise_missing=False, dataset=dataset, verbose=verbose)
         else:
             materialization = 'latest'
 
@@ -1766,6 +1777,7 @@ def search_community_annotations(x,
     # Grab the table at the requested materialization
     ct = _get_community_annotation_table(dataset=dataset,
                                          split_positions=True,
+                                         verbose=verbose,
                                          materialization=materialization)
 
     # If no query term, we'll just return the whole table
@@ -2039,7 +2051,7 @@ class NeuronCriteria():
                 back to the default dataset (see also
                 :func:`~fafbseg.flywire.set_default_dataset`).
     verbose :   bool
-                Whether to print information on which annotations were used.
+                Whether to print information on which annotation version is used.
 
     Examples
     --------
