@@ -233,7 +233,7 @@ def get_neuropil_volumes(neuropils):
         f = zip.read(f'{neuropils}.ply')
         m = tm.load_mesh(BytesIO(f), file_type='ply')
 
-    return navis.Volume(m, name=neuropils)
+    return navis.Volume(m, name=neuropils, units='nm')
 
 
 def get_synapse_areas(ind):
@@ -767,6 +767,7 @@ def package_timestamp(timestamp, name="timestamp"):
 
 
 class silence_find_mat_version:
+    """Context manager to silence `find_mat_version` output."""
     def __enter__(self):
         global SILENCE_FIND_MAT_VERSION
         SILENCE_FIND_MAT_VERSION = True
