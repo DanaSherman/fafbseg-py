@@ -191,7 +191,7 @@ def get_mesh_neuron(
 
     if with_synapses:
         _ = get_synapses(
-            n.id, attach=True, min_score=30, dataset=dataset, progress=False
+            n, attach=True, dataset=dataset, progress=False
         )
 
     return n
